@@ -29,19 +29,17 @@ import loci.formats.meta.IMetadata;
 import loci.plugins.util.ImageProcessorReader;
 import mcib3d.geom2.Object3DInt;
 import mcib3d.geom2.Objects3DIntPopulation;
-import mcib3d.geom2.measurements.Measure2Distance;
 import mcib3d.geom2.measurements.MeasureVolume;
 import mcib3d.image3d.ImageHandler;
 import mcib3d.image3d.ImageInt;
 import mcib3d.image3d.ImageLabeller;
 import org.apache.commons.io.FilenameUtils;
-import sc.fiji.snt.analysis.sholl.*;
-import sc.fiji.snt.analysis.sholl.gui.*;
-import sc.fiji.snt.analysis.sholl.math.*;
-import sc.fiji.snt.analysis.sholl.parsers.*;
-import ij.gui.Plot;
 import ij.gui.Roi;
+import ij.measure.Measurements;
 import ij.measure.ResultsTable;
+import ij.plugin.filter.Analyzer;
+import mcib3d.geom.Point3D;
+import mcib3d.geom2.measurements.MeasureCentroid;
 
 
 /**
@@ -66,7 +64,10 @@ public class Processing {
     private int shollStep = 30;
     public double shollCenterX;
     public double shollCenterY;
+    public double shollDistStart;
+    public double shollDistEnd;
     public double spheroidRad;
+    public double phalloidinArea;
     public Overlay shollOverlay = new Overlay();
     public double minNucVol = 50, maxNuclVol = 500;
     public double minSpheroidVol = 100;
@@ -276,7 +277,7 @@ public class Processing {
         spheroidThMethod = gd.getNextChoice();
         shollStep = (int)gd.getNextNumber();
         cal.pixelWidth = cal.pixelHeight = gd.getNextNumber();
-        cal.pixelDepth = gd.getNextNumber();
+        cal.pixelDepth = 1;
         pixVol = cal.pixelWidth*cal.pixelWidth*cal.pixelDepth;
         return(chChoices);
     }
@@ -310,24 +311,21 @@ public class Processing {
      * Apply StarDist 2D slice by slice
      * Label detections in 3D
      */
-   public Objects3DIntPopulation stardistDetection(ImagePlus img) throws IOException{
+   public Objects3DIntPopulation stardistDetection(ImagePlus img, Roi roiSpheroid) throws IOException{
+       ImagePlus imgNucMasked = new Duplicator().run(img);       
        // mask nucleus image with spheroid circle
-       double X = shollCenterX - spheroidRad/cal.pixelWidth;
-       double Y = shollCenterY - spheroidRad/cal.pixelHeight;
-       double sX = (spheroidRad/cal.pixelWidth)*2;
-       double sY = (spheroidRad/cal.pixelHeight)*2;
-       OvalRoi spheroidCircle = new OvalRoi(X, Y, sX, sY);
-       img.setRoi(spheroidCircle);
-       IJ.run(img, "Clear", "slice");
-       img.deleteRoi();
+       imgNucMasked.setRoi(roiSpheroid);
+       IJ.run(imgNucMasked, "Clear", "slice");
+       imgNucMasked.deleteRoi();
         // StarDist
        File starDistModelFile = new File(modelsPath+File.separator+stardistModel);
        StarDist2D star = new StarDist2D(syncObject, starDistModelFile);
-       star.loadInput(img);
+       star.loadInput(imgNucMasked);
        star.setParams(stardistPercentileBottom, stardistPercentileTop, stardistProbThresh, stardistOverlayThresh, stardistOutput);
        star.run();
        ImagePlus imgLabels = star.getLabelImagePlus().duplicate();
-       imgLabels.setCalibration(cal);               
+       imgLabels.setCalibration(cal); 
+       closeImages(imgNucMasked);
        // Get objects as a population of objects
        Objects3DIntPopulation pop = new Objects3DIntPopulation(ImageHandler.wrap(imgLabels));  
        System.out.println(pop.getNbObjects()+" Stardist detections");
@@ -343,28 +341,20 @@ public class Processing {
     /**
      * Find Spheroid Object
      */
-    public Object3DInt findSpheroid( ImagePlus imgNuc, ImagePlus spheroidImg) {
-        ImagePlus imgDup = new Duplicator().run(imgNuc);        
+    public Roi findSpheroid( ImagePlus imgNuc, ImagePlus spheroidImg) {
         // Merge channel (multiply)
+        ImagePlus imgNucDup = new Duplicator().run(imgNuc);
         ImageCalculator multi = new ImageCalculator();
-        multi.calculate("multiply", imgDup, spheroidImg);
-        IJ.run(imgDup, "Median...", "radius=6");
-        IJ.setAutoThreshold(imgDup, "Li dark no-reset");
+        ImagePlus spheroidMask = multi.run("add", imgNucDup, spheroidImg);
+        IJ.run(spheroidMask, "Median...", "radius=6");
+        IJ.setAutoThreshold(spheroidMask, "Li dark no-reset");
         Prefs.blackBackground = false;
-        IJ.run(imgDup, "Convert to Mask", "");
-        imgDup.setCalibration(cal);
-        Objects3DIntPopulation pop = getPopFromImage(imgDup);
-        popFilterSize(pop, minSpheroidVol, Double.MAX_VALUE);
-        // get spheroid as on object
-        ImageHandler imh = ImageHandler.wrap(imgDup).createSameDimensions();
-        for (Object3DInt obj : pop.getObjects3DInt())
-                obj.drawObject(imh, 255);
-        Object3DInt spheroidObj = new Object3DInt(imh);
-        closeImages(imgDup);
-        imh.closeImagePlus();
-        spheroidObj.setVoxelSizeXY(cal.pixelWidth);
-        spheroidObj.setVoxelSizeZ(cal.pixelDepth);
-        return(spheroidObj);
+        IJ.run(spheroidMask, "Convert to Mask", "");
+        spheroidMask.setCalibration(cal);
+        Roi roiSpheroid = computeCenterRadius(spheroidMask);
+        closeImages(imgNucDup);
+        closeImages(spheroidMask);
+        return(roiSpheroid);
     }
     
 
@@ -398,104 +388,127 @@ public class Processing {
     
     /**
      * Sholl Analysis
+     * Compute phalloidin area in sholl circle
      */
-    public ResultsTable shollAnalysis(ImagePlus img) {
-        ImagePlus imgMask = new Duplicator().run(img);
-        // threshold image
-        IJ.run(imgMask, "Gaussian Blur...", "sigma=2");
-        IJ.setAutoThreshold(imgMask, spheroidThMethod+" dark no-reset");
-        Prefs.blackBackground = false;
-        IJ.run(imgMask, "Convert to Mask", "");
-        IJ.run(imgMask, "Median...", "radius=8");
-        imgMask.setCalibration(cal);
-        ImageParser2D parser = new ImageParser2D(imgMask);
-        // 5 samples/radius w/ median integration
-        parser.setRadiiSpan(5, ImageParser2D.MEAN);
-        parser.setCenter(shollCenterX*cal.pixelWidth, shollCenterY*cal.pixelHeight, 1);
-        parser.setRadii(spheroidRad, shollStep, parser.maxPossibleRadius());
-        System.out.println("Sholl analysis in progress ...");
-        parser.parse();
-        //closeImages(imgMask);
-        if (!parser.successful()) {
-            System.out.println("Spheroid Sholl analysis " + img.getTitle() + " could not be analyzed!!!");
-            return(null);
-        }
-        else {
-            Profile profile = parser.getProfile();
-            if (profile.isEmpty()) {
-                System.out.println("All intersection counts were zero! Invalid threshold range!?");
-                return(null);
-            }
-            profile.setSpatialCalibration(cal);
-            shollOverlay = profile.getROIs();
-            shollOverlay.setStrokeColor(Color.yellow);
-            Plot plot = new ShollPlot(new LinearProfileStats(profile));
-            ResultsTable resultsTable = plot.getResultsTable();
-            resultsTable.renameColumn("X", "Distance (µm)");
-            resultsTable.renameColumn("Y", "Spheroid intersections");
+    public void phalloidinShollAnalysis(ImagePlus img, ResultsTable results) {
+        ResultsTable resultsTemp = new ResultsTable();
+        //results.show("Results");
+        int row = 0;
+        IJ.setForegroundColor(255, 255, 255);
+        IJ.setBackgroundColor(255, 255, 255);
+        double start = shollDistStart;
+        double end = shollDistEnd / cal.pixelWidth;
+        double step = shollStep /cal.pixelWidth;
+        for (double i = start; i <= end; i+=step) {
+            Roi circleInt = new OvalRoi(shollCenterX - i, shollCenterY - i, i*2, i*2);
+            Roi circleOut = new OvalRoi(shollCenterX - (i+step), shollCenterY - (i+step), (i+step)*2, (i+step)*2);
+            ImagePlus imgMask = new Duplicator().run(img);
+            imgMask.setRoi(circleInt);
+            shollOverlay.add(circleInt);
+            IJ.run(imgMask, "Fill", "slice");
+            imgMask.setRoi(circleOut);
+            shollOverlay.add(circleOut);
+            IJ.run(imgMask, "Clear Outside", "");
+            IJ.setAutoThreshold(imgMask, "Default no-reset");
+            imgMask.deleteRoi();
+            resultsTemp.reset();
+            Analyzer ana = new Analyzer(imgMask, Measurements.AREA+Measurements.LIMIT, resultsTemp);
+            ana.measure();
+            double area = resultsTemp.getValue("Area", 0);
+            results.setValue("Phalloid Area", row, area);
+            row++;
             closeImages(imgMask);
-            return(resultsTable);
         }
+    }
+    
+    public ImagePlus phalloidinMask(ImagePlus imgSpheroid) {
+        // create mask for phalloidin
+        ImagePlus mask = new Duplicator().run(imgSpheroid);
+        IJ.run(mask, "Median...", "radius=4");
+        IJ.setAutoThreshold(mask, spheroidThMethod+" dark no-reset");
+        Prefs.blackBackground = false;
+        IJ.run(mask, "Convert to Mask", "");
+        IJ.run(mask, "Fill Holes", "");
+        mask.setCalibration(cal);
+        return(mask);
     }
     
     /**
      * 
      */
-    public void computeShollNucleus(ArrayList<Double> nucDist, ResultsTable shollResults, String outDirResults, String imgName) {
-        double distStart = shollResults.getValue("Distance (µm)", 0);
-        double distEnd = shollResults.getValue("Distance (µm)", shollResults.size()-1);
+    public ResultsTable computeSholl(Roi roiSpheroid, ArrayList<Double> nucDist, ImagePlus imgMask) {
+        IJ.setAutoThreshold(imgMask, "Default no-reset");
+        ResultsTable shollResults = new ResultsTable();
+        Analyzer ana = new Analyzer(imgMask, Measurements.AREA+Measurements.LIMIT, shollResults);
+        ana.measure();
+        phalloidinArea = shollResults.getValue("Area", 0);
+        shollResults.reset();
+        //System.out.println(phalloidinArea);
+        double vxWH = Math.sqrt(cal.pixelWidth * cal.pixelHeight);
+        int wdth = imgMask.getWidth();
+        double hght =  imgMask.getHeight();
+        double dx = (shollCenterX <= wdth / 2) ? (shollCenterX - wdth) * vxWH : shollCenterX * vxWH;
+        double dy = (shollCenterY <= hght / 2) ? (shollCenterY - hght) * vxWH : shollCenterY * vxWH;
+        double dz = 1;
+        // start & end in pixels
+        shollDistEnd = Math.sqrt(dx * dx + dy * dy + dz * dz);
+       
         int row = 0;
-        System.out.println("Nucleus Sholl analysis distance start = "+distStart+" distance stop = "+distEnd+" ...");
-        for (double i = distStart; i <= distEnd; i+=shollStep) {
+        System.out.println("Nucleus Sholl analysis distance start = "+spheroidRad+" distance stop = "+shollDistEnd+" ...");
+        for (double i = spheroidRad; i <= shollDistEnd; i+=shollStep) {
             int nucNb = 0;
             for (Double dist : nucDist) {
                 if (dist >= i && dist < (i+shollStep))
                     nucNb++;
             }
+            shollResults.setValue("Radius", row, i);
             shollResults.setValue("Nucleus", row, nucNb);
             row++;
-        }
-        shollResults.save(outDirResults+imgName+".xls");
+        } 
+        shollDistStart = spheroidRad / cal.pixelWidth;
+        System.out.println("Phalloidin Sholl analysis area start = "+spheroidRad+" distance stop = "+shollDistEnd+" ...");
+        phalloidinShollAnalysis(imgMask, shollResults);
+        return(shollResults);
     }
     
     /**
      * Compute parameters
-     * 
+     * find nucleus distance to spheroid center
      */
-    public ArrayList<Double> computeParameters(Object3DInt spheroidObj, Objects3DIntPopulation nucPop) {
+    public ArrayList<Double> computeNucleusDistance(Objects3DIntPopulation nucPop, ImagePlus imgSpheroid) {
+        
         ArrayList<Double> nucDist = new ArrayList<>();
-        for (Object3DInt nucObj : nucPop.getObjects3DInt()) 
-            nucDist.add(new Measure2Distance(nucObj, spheroidObj).getValue(Measure2Distance.DIST_CC_UNIT));
+        Point3D spheroidCenter = new Point3D(shollCenterX, shollCenterY, 1);
+        for (Object3DInt nucObj : nucPop.getObjects3DInt()) {
+            Point3D nucCenter = new MeasureCentroid(nucObj).getCentroidAsPoint();
+            nucDist.add(nucCenter.distance(spheroidCenter)*cal.pixelWidth);
+        }
         return(nucDist);
     }
     
     /**
      * Compute spheroid diameter
      */
-    public void computeCenterRadius(ImagePlus imgSpheroid, Object3DInt spheroidObj) {
-        ImageHandler imh = ImageHandler.wrap(imgSpheroid).createSameDimensions();
-        spheroidObj.drawObject(imh, 255);
-        ImagePlus img = imh.getImagePlus();
-        IJ.setAutoThreshold(img, "Default dark");
+    public Roi computeCenterRadius(ImagePlus img) {
         IJ.run(img, "Create Selection", "");
         IJ.run(img, "Fit Circle", "");
         Roi roiSpheroid = img.getRoi();
-        closeImages(img);
-        spheroidRad = (roiSpheroid.getFeretsDiameter()*cal.pixelWidth)/2;
+        spheroidRad = roiSpheroid.getFeretsDiameter()/2;
         shollCenterX = roiSpheroid.getContourCentroid()[0];
         shollCenterY = roiSpheroid.getContourCentroid()[1];
+        closeImages(img);
+        return(roiSpheroid);
     }
     
     /**
      * Save results
      */
-    public void saveResults(Objects3DIntPopulation nucPop, Object3DInt spheroidObj, String imgName, String seriesName, ArrayList<Double> diams,
+    public void saveResults(Objects3DIntPopulation nucPop, String imgName, String seriesName, ArrayList<Double> diams,
             BufferedWriter outPutResults) throws IOException {
-        double spheroidArea = new MeasureVolume(spheroidObj).getVolumeUnit();
         int index = 0;
         for (Object3DInt nucObj : nucPop.getObjects3DInt()) {
             double nucVol = new MeasureVolume(nucObj).getVolumeUnit();
-            outPutResults.write(imgName+"\t"+seriesName+"\t"+spheroidArea+"\t"+spheroidRad+"\t"+nucObj.getLabel()+"\t"+nucVol+"\t"+diams.get(index)+"\n");
+            outPutResults.write(imgName+"\t"+seriesName+"\t"+phalloidinArea+"\t"+spheroidRad+"\t"+nucObj.getLabel()+"\t"+nucVol+"\t"+diams.get(index)+"\n");
             index++;
 
         }
@@ -509,15 +522,13 @@ public class Processing {
      * @param spheroidObj
      * @param imgname
      */
-    public void saveObjectsImage (ImagePlus img, Objects3DIntPopulation nucPop, Object3DInt spheroidObj, String imgName, String outDirResults) {
+    public void saveObjectsImage (ImagePlus img, Objects3DIntPopulation nucPop, ImagePlus imgPhalloidinMask, String imgName, String outDirResults) {
         // green spheroid, red nuc
         ImageHandler imgNuc = ImageHandler.wrap(img).createSameDimensions();
-        ImageHandler imgSpheroid = ImageHandler.wrap(img).createSameDimensions();
         // draw nucleus population
         nucPop.drawInImage(imgNuc);
-        // draw spheroid
-        spheroidObj.drawObject(imgSpheroid, 255);
-        ImagePlus[] imgColors = {imgNuc.getImagePlus(), imgSpheroid.getImagePlus(), null, img};
+        
+        ImagePlus[] imgColors = {imgNuc.getImagePlus(), imgPhalloidinMask, null, img};
         ImagePlus imgObjects = new RGBStackMerge().mergeHyperstacks(imgColors, false);
         imgObjects.setCalibration(cal);
         IJ.run(imgObjects, "Enhance Contrast", "saturated=0.35");
@@ -526,7 +537,6 @@ public class Processing {
         FileSaver ImgObjectsFile = new FileSaver(imgObjects);
         ImgObjectsFile.saveAsTiff(outDirResults + imgName + "_Objects.tif");
         imgNuc.closeImagePlus();
-        imgSpheroid.closeImagePlus();
     }
     
     

@@ -5,7 +5,7 @@
 
 
 import ij.*;
-import ij.gui.OvalRoi;
+import ij.gui.Roi;
 import ij.measure.ResultsTable;
 import ij.plugin.Duplicator;
 import ij.plugin.PlugIn;
@@ -31,12 +31,8 @@ import loci.formats.services.OMEXMLService;
 import loci.plugins.BF;
 import loci.plugins.in.ImporterOptions;
 import loci.plugins.util.ImageProcessorReader;
-import mcib3d.geom.Point3D;
-import mcib3d.geom.Voxel3D;
 import mcib3d.geom2.Object3DInt;
 import mcib3d.geom2.Objects3DIntPopulation;
-import mcib3d.geom2.measurements.MeasureCentroid;
-import mcib3d.image3d.ImageHandler;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.io.FilenameUtils;
 
@@ -117,6 +113,7 @@ public class Spheroid_Expansion implements PlugIn {
                     reader.setSeries(s);
                     options.setSeriesOn(s, true);
                     String seriesName = meta.getImageName(s);
+                    
                     // open nucleus and Phaloidin image Z project and multiply
                     int indexCh = ArrayUtils.indexOf(channelNames, channels[0]);
                     ImagePlus imgNuc = BF.openImagePlus(options)[indexCh];
@@ -127,34 +124,34 @@ public class Spheroid_Expansion implements PlugIn {
                     ImagePlus imgSpheroid = BF.openImagePlus(options)[indexCh];
                     ImagePlus imgSpheroidProj = tools.doZProjection(imgSpheroid, ZProjector.MAX_METHOD);
                     tools.closeImages(imgSpheroid);
-                    Object3DInt spheroidObj = tools.findSpheroid(imgNucProj, imgSpheroidProj);
+                    
                     // find Sholl center, starting
-                    tools.computeCenterRadius(imgSpheroidProj, spheroidObj);
+                    Roi roiSpheroid = tools.findSpheroid(imgNucProj, imgSpheroidProj);
                     System.out.println("Spheroid center = ("+tools.shollCenterX*tools.cal.pixelWidth+", "+tools.shollCenterY*tools.cal.pixelHeight);
                     System.out.println("Spheroid radius = "+ tools.spheroidRad);
-                    ResultsTable shollResults = tools.shollAnalysis(imgSpheroidProj);
-                    tools.closeImages(imgSpheroidProj);
+                    
                     // Find nuclei 
                     // Mask spheroid in nucleus image
-                    ImagePlus imgNucMasked = new Duplicator().run(imgNucProj);
-                    imgNucMasked.setCalibration(tools.cal);
-                    Objects3DIntPopulation nucPop = tools.stardistDetection(imgNucMasked);
-                    tools.closeImages(imgNucMasked);
-                    // Compute distances
-                    ArrayList<Double> nucDist = tools.computeParameters(spheroidObj, nucPop);
-                    tools.computeShollNucleus(nucDist, shollResults, outDirResults, rootName+"_"+seriesName);
+                    Objects3DIntPopulation nucPop = tools.stardistDetection(imgNucProj, roiSpheroid);
+                    // Compute parameters
+                    ArrayList<Double> nucDist = tools.computeNucleusDistance(nucPop, imgSpheroid);
+                    ImagePlus phalloidinMask = tools.phalloidinMask(imgSpheroidProj);
+                    tools.closeImages(imgSpheroidProj);
+                    ResultsTable shollResults = tools.computeSholl(roiSpheroid, nucDist, phalloidinMask);
+                    // Save sholl results
+                    shollResults.save(outDirResults+"_"+rootName+"_"+seriesName+".xls");
+                    
                     // Save results
-                    tools.saveResults(nucPop, spheroidObj, rootName, seriesName, nucDist, outPutResults);
-                    tools.saveObjectsImage(imgNucProj, nucPop, spheroidObj, rootName+"_"+seriesName, outDirResults);
+                    tools.saveResults(nucPop, rootName, seriesName, nucDist, outPutResults);
+                    tools.saveObjectsImage(imgNucProj, nucPop, phalloidinMask, rootName+"_"+seriesName, outDirResults);
                     tools.closeImages(imgNucProj);
+                    tools.closeImages(phalloidinMask);
                     options.clearSeries();
                 }
             }
             outPutResults.close();
 
-        } catch (IOException ex) {
-            Logger.getLogger(Spheroid_Expansion.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (DependencyException | ServiceException | FormatException ex) {
+        } catch (IOException | DependencyException | ServiceException | FormatException ex) {
             Logger.getLogger(Spheroid_Expansion.class.getName()).log(Level.SEVERE, null, ex);
         }
         IJ.showStatus("Process done");

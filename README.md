@@ -16,7 +16,7 @@
   1.  Phalloidin Cy5
   2.  DAPI Cy3
 
-Find cells expansion from the spheroid center
+Find phalloidin protusion expansion from the spheroid center
 
 ### Plugin description
 
@@ -24,7 +24,7 @@ Find cells expansion from the spheroid center
 * Detect spheroid
 * Detect nuclei ouside spheroid with stardist
 * Compute nuclei distance to spheroid center
-* Sholl analysis on phalloid channel
+* Sholl analysis on phalloid channel (measure surface) and nucleus (measure number)
 
 
 ### Dependencies
@@ -35,4 +35,4 @@ Find cells expansion from the spheroid center
 
 ### Version history
 
-Version 1 released on Jun 16, 2023.
+Version 1 released on Jun 23, 2023.
