@@ -35,6 +35,7 @@ import mcib3d.image3d.ImageInt;
 import mcib3d.image3d.ImageLabeller;
 import org.apache.commons.io.FilenameUtils;
 import ij.gui.Roi;
+import ij.gui.WaitForUserDialog;
 import ij.measure.Measurements;
 import ij.measure.ResultsTable;
 import ij.plugin.filter.Analyzer;
@@ -67,6 +68,7 @@ public class Processing {
     public double shollDistStart;
     public double shollDistEnd;
     public double spheroidRad;
+    public double spheroidArea;
     public double phalloidinArea;
     public Overlay shollOverlay = new Overlay();
     public double minNucVol = 50, maxNuclVol = 500;
@@ -352,6 +354,17 @@ public class Processing {
         IJ.run(spheroidMask, "Convert to Mask", "");
         spheroidMask.setCalibration(cal);
         Roi roiSpheroid = computeCenterRadius(spheroidMask);
+        spheroidMask.setRoi(roiSpheroid);
+        IJ.setForegroundColor(0, 0, 0);
+        IJ.setBackgroundColor(255, 255, 255);
+        IJ.run(spheroidMask, "Clear Outside", "");
+        IJ.setAutoThreshold(spheroidMask, "Default no-reset");
+        ResultsTable results = new ResultsTable();
+        Analyzer ana = new Analyzer(spheroidMask, Measurements.AREA+Measurements.LIMIT, results);
+        ana.measure();
+        spheroidArea = results.getValue("Area", 0);
+        System.out.println("Spheroid area="+spheroidArea);
+        results.reset();
         closeImages(imgNucDup);
         closeImages(spheroidMask);
         return(roiSpheroid);
@@ -392,7 +405,6 @@ public class Processing {
      */
     public void phalloidinShollAnalysis(ImagePlus img, ResultsTable results) {
         ResultsTable resultsTemp = new ResultsTable();
-        //results.show("Results");
         int row = 0;
         IJ.setForegroundColor(255, 255, 255);
         IJ.setBackgroundColor(255, 255, 255);
@@ -496,7 +508,6 @@ public class Processing {
         spheroidRad = roiSpheroid.getFeretsDiameter()/2;
         shollCenterX = roiSpheroid.getContourCentroid()[0];
         shollCenterY = roiSpheroid.getContourCentroid()[1];
-        closeImages(img);
         return(roiSpheroid);
     }
     
@@ -508,7 +519,7 @@ public class Processing {
         int index = 0;
         for (Object3DInt nucObj : nucPop.getObjects3DInt()) {
             double nucVol = new MeasureVolume(nucObj).getVolumeUnit();
-            outPutResults.write(imgName+"\t"+seriesName+"\t"+phalloidinArea+"\t"+spheroidRad+"\t"+nucObj.getLabel()+"\t"+nucVol+"\t"+diams.get(index)+"\n");
+            outPutResults.write(imgName+"\t"+seriesName+"\t"+phalloidinArea+"\t"+spheroidArea+"\t"+spheroidRad+"\t"+nucObj.getLabel()+"\t"+nucVol+"\t"+diams.get(index)+"\n");
             index++;
 
         }

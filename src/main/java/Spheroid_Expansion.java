@@ -7,7 +7,6 @@
 import ij.*;
 import ij.gui.Roi;
 import ij.measure.ResultsTable;
-import ij.plugin.Duplicator;
 import ij.plugin.PlugIn;
 import ij.plugin.ZProjector;
 import java.io.BufferedWriter;
@@ -31,7 +30,6 @@ import loci.formats.services.OMEXMLService;
 import loci.plugins.BF;
 import loci.plugins.in.ImporterOptions;
 import loci.plugins.util.ImageProcessorReader;
-import mcib3d.geom2.Object3DInt;
 import mcib3d.geom2.Objects3DIntPopulation;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.io.FilenameUtils;
@@ -97,7 +95,7 @@ public class Spheroid_Expansion implements PlugIn {
             // Write headers results for results files
             FileWriter results = new FileWriter(outDirResults + "Results.xls", false);
             BufferedWriter outPutResults = new BufferedWriter(results);
-            outPutResults.write("Image name\tSerie name\tSpheroid Area (µm2)\tSpheroid diameter (µm)\t#Nucleus\tNucleus Area (µm2)\tNucleus distance to spheroid center (µm)\n");
+            outPutResults.write("Image name\tSerie name\tPhalloidin Area (µm2)\tSpheroid area (µm2)\tSpheroid diameter (µm)\t#Nucleus\tNucleus Area (µm2)\tNucleus distance to spheroid center (µm)\n");
             outPutResults.flush();
             
             for (String f : imageFiles) {
