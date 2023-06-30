@@ -1,38 +1,31 @@
-# Shperoid_Expansion
+# Spheroid_Expansion
 
-**Developed for:** Florian
-
-**Team:** Monnot
-
-**Date:** Juin 2023
-
-**Software:** Fiji
+* **Developed for:** Florian
+* **Team:** Monnot
+* **Date:** June 2023
+* **Software:** Fiji
 
 ### Images description
 
-3D images taken with a x20 objective
+3D images of spheroids taken with a 10x or a x20 objective
 
-* **channels:
-  1.  Phalloidin Cy5
-  2.  DAPI Cy3
-
-Find phalloidin protusion expansion from the spheroid center
+2 channels:
+1.  GFP: Phalloidin spheroid and protrusions
+2.  DAPI: DAPI nuclei
 
 ### Plugin description
 
-* Z project
-* Detect spheroid
-* Detect nuclei ouside spheroid with stardist
-* Compute nuclei distance to spheroid center
-* Sholl analysis on phalloid channel (measure surface) and nucleus (measure number)
-
+* Z-project stack over max intensity
+* Detect spheroid with median filtering + thresholding and fit a circle on it
+* Detect spheroid and protrusions with subtract background + median filtering + thresholding
+* Detect nuclei with Stardist
+* Perform Sholl analysis: measure area of protrusions and number of nuclei between each two concentric circles
 
 ### Dependencies
 
 * **3DImageSuite** Fiji plugin
-* **Stardist** 
- 
+* **Stardist** conda env + *StandardFluo.zip* model
 
 ### Version history
 
-Version 1 released on Jun 23, 2023.
+Version 1 released on Jun 30, 2023.
