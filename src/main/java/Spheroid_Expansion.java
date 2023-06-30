@@ -1,12 +1,6 @@
-/*
- * Analyze Spheroid expansion 
- * Author Philippe Mailly / Heloïse Monnet
- */
-
-
 import ij.*;
+import ij.gui.Overlay;
 import ij.gui.Roi;
-import ij.measure.ResultsTable;
 import ij.plugin.PlugIn;
 import ij.plugin.ZProjector;
 import java.io.BufferedWriter;
@@ -21,6 +15,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import loci.common.services.DependencyException;
 import loci.common.services.ServiceException;
 import loci.common.services.ServiceFactory;
@@ -32,41 +27,36 @@ import loci.plugins.in.ImporterOptions;
 import loci.plugins.util.ImageProcessorReader;
 import mcib3d.geom2.Objects3DIntPopulation;
 import org.apache.commons.lang.ArrayUtils;
-import org.apache.commons.io.FilenameUtils;
 
 
+/**
+ * Analyze spheroid expansion in 2D
+ * @author ORION-CIRB
+ */
 public class Spheroid_Expansion implements PlugIn {
 
-    private final boolean canceled = false;
-    private String imageDir = "";
-    private Spheroid_Expansion_Tools.Processing tools = new Spheroid_Expansion_Tools.Processing();
+    private Spheroid_Expansion_Tools.Tools tools = new Spheroid_Expansion_Tools.Tools();
     
-    
-    /**
-     * 
-     * @param arg
-     */
-    @Override
     public void run(String arg) {
         try {
-            if (canceled) {
-                IJ.showMessage(" Pluging canceled");
+            if (!tools.checkInstalledModules()) {
                 return;
             }
-            String imageDir = IJ.getDirectory("Choose images directory")+File.separator;
+            
+            String imageDir = IJ.getDirectory("Choose directory containing image files...");
             if (imageDir == null) {
                 return;
             }
-            File inDir = new File(imageDir);
+            
             // Find images with fileExt extension
-            String fileExt = tools.findImageType(inDir);
+            String fileExt = tools.findImageType(new File(imageDir));
             ArrayList<String> imageFiles = tools.findImages(imageDir, fileExt);
             if (imageFiles.isEmpty()) {
                 IJ.showMessage("Error", "No images found with " + fileExt + " extension");
                 return;
             }
             
-            // create OME-XML metadata store of the latest schema version
+            // Create OME-XML metadata store of the latest schema version
             ServiceFactory factory;
             factory = new ServiceFactory();
             OMEXMLService service = factory.getInstance(OMEXMLService.class);
@@ -75,83 +65,91 @@ public class Spheroid_Expansion implements PlugIn {
             reader.setMetadataStore(meta);
             reader.setId(imageFiles.get(0));
             
-            // Find chanels, image calibration
-            reader.setId(imageFiles.get(0));
-            String[] channelNames = tools.findChannels(imageFiles.get(0), meta, reader);
+            // Find image calibration
             tools.findImageCalib(meta);
-            String[] channels = tools.dialog(channelNames);
-            if(channels == null)
-                return;
             
+            // Find channel names
+            String[] channelNames = tools.findChannels(imageFiles.get(0), meta, reader);
+            
+            // Dialog box
+            String[] channels = tools.dialog(channelNames);
+            if(channels == null) {
+                IJ.showStatus("Plugin canceled");
+                return;
+            }
+                
             // Create output folder
             DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss");
-            Date date = new Date();
-            String outDirResults = imageDir + File.separator+ "Results_" + dateFormat.format(date) +  File.separator;
+            String outDirResults = imageDir + File.separator+ "Results_" + dateFormat.format(new Date()) + File.separator;
             File outDir = new File(outDirResults);
             if (!Files.exists(Paths.get(outDirResults))) {
                 outDir.mkdir();
             }
             
-            // Write headers results for results files
-            FileWriter results = new FileWriter(outDirResults + "Results.xls", false);
-            BufferedWriter outPutResults = new BufferedWriter(results);
-            outPutResults.write("Image name\tSerie name\tPhalloidin Area (µm2)\tSpheroid area (µm2)\tSpheroid diameter (µm)\t#Nucleus\tNucleus Area (µm2)\tNucleus distance to spheroid center (µm)\n");
-            outPutResults.flush();
-            
+            // Write headers in results files
+            FileWriter fwSholl = new FileWriter(outDirResults + "shollResults.xls", false);
+            BufferedWriter shollResults = new BufferedWriter(fwSholl);
+            shollResults.write("Image name\tCircle ID\tCircle radius (µm)\tPhalloidin area (µm2)\tNb nuclei\n");
+            shollResults.flush();
+            FileWriter fwGlobal = new FileWriter(outDirResults + "globalResults.xls", false);
+            BufferedWriter globalResults = new BufferedWriter(fwGlobal);
+            globalResults.write("Image name\tSpheroid area (µm2)\tSpheroid radius (µm)\tPhalloidin area (µm2)\tNb nuclei\n");
+            globalResults.flush();
+
             for (String f : imageFiles) {
+                reader.setId(f);
+                
                 ImporterOptions options = new ImporterOptions();
                 options.setId(f);
                 options.setSplitChannels(true);
                 options.setQuiet(true);
                 options.setColorMode(ImporterOptions.COLOR_MODE_GRAYSCALE);
-                String rootName = FilenameUtils.getBaseName(f);
-                reader.setId(f);
-                int series = reader.getSeriesCount();
-                for (int s = 0; s < series; s++) {
+
+                for (int s = 0; s < reader.getSeriesCount(); s++) {
                     reader.setSeries(s);
                     options.setSeriesOn(s, true);
                     String seriesName = meta.getImageName(s);
+                    tools.print("--- ANALYZING IMAGE " + seriesName + " ---");
                     
-                    // open nucleus and Phaloidin image Z project and multiply
+                    // Open DAPI channel and z-project it
                     int indexCh = ArrayUtils.indexOf(channelNames, channels[0]);
                     ImagePlus imgNuc = BF.openImagePlus(options)[indexCh];
                     ImagePlus imgNucProj = tools.doZProjection(imgNuc, ZProjector.MAX_METHOD);
-                    tools.closeImages(imgNuc);
-                    // Open Phaloidin channel
+                    tools.flushCloseImg(imgNuc);
+                    
+                    // Open Phalloidin channel and z-project it
                     indexCh = ArrayUtils.indexOf(channelNames,channels[1]);
                     ImagePlus imgSpheroid = BF.openImagePlus(options)[indexCh];
                     ImagePlus imgSpheroidProj = tools.doZProjection(imgSpheroid, ZProjector.MAX_METHOD);
-                    tools.closeImages(imgSpheroid);
+                    tools.flushCloseImg(imgSpheroid);
                     
-                    // find Sholl center, starting
-                    Roi roiSpheroid = tools.findSpheroid(imgNucProj, imgSpheroidProj);
-                    System.out.println("Spheroid center = ("+tools.shollCenterX*tools.cal.pixelWidth+", "+tools.shollCenterY*tools.cal.pixelHeight);
-                    System.out.println("Spheroid radius = "+ tools.spheroidRad);
+                    // Detect spheroid without protrusions and fit a circle on it
+                    Roi spheroidRoi = tools.fitSpheroid(imgNucProj, imgSpheroidProj);
+                    // Compute fitted circle radius and centroid
+                    HashMap<String, Double> spheroidParams = tools.computeSpheroidParams(spheroidRoi);
                     
-                    // Find nuclei 
-                    // Mask spheroid in nucleus image
-                    Objects3DIntPopulation nucPop = tools.stardistDetection(imgNucProj, roiSpheroid);
-                    // Compute parameters
-                    ArrayList<Double> nucDist = tools.computeNucleusDistance(nucPop, imgSpheroid);
+                    // Get phalloidin mask
                     ImagePlus phalloidinMask = tools.phalloidinMask(imgSpheroidProj);
-                    tools.closeImages(imgSpheroidProj);
-                    ResultsTable shollResults = tools.computeSholl(roiSpheroid, nucDist, phalloidinMask);
-                    // Save sholl results
-                    shollResults.save(outDirResults+"_"+rootName+"_"+seriesName+".xls");
+                    
+                    // Detect nuclei
+                    Objects3DIntPopulation nucPop = tools.stardistDetection(imgNucProj, spheroidRoi);
                     
                     // Save results
-                    tools.saveResults(nucPop, rootName, seriesName, nucDist, outPutResults);
-                    tools.saveObjectsImage(imgNucProj, nucPop, phalloidinMask, rootName+"_"+seriesName, outDirResults);
-                    tools.closeImages(imgNucProj);
-                    tools.closeImages(phalloidinMask);
+                    Overlay shollOverlay = tools.writeShollResults(shollResults, spheroidRoi, spheroidParams, phalloidinMask, nucPop, seriesName);
+                    tools.writeGlobalResults(globalResults, spheroidRoi, spheroidParams, phalloidinMask, nucPop, seriesName);
+                    tools.drawResults(imgNucProj, nucPop, phalloidinMask, shollOverlay, outDirResults, seriesName);
+                    
+                    tools.flushCloseImg(imgNucProj);
+                    tools.flushCloseImg(imgSpheroidProj);
+                    tools.flushCloseImg(phalloidinMask);
                     options.clearSeries();
                 }
             }
-            outPutResults.close();
-
+            shollResults.close();
+            globalResults.close();
         } catch (IOException | DependencyException | ServiceException | FormatException ex) {
             Logger.getLogger(Spheroid_Expansion.class.getName()).log(Level.SEVERE, null, ex);
         }
-        IJ.showStatus("Process done");
+        tools.print("All done!");
     }
 }

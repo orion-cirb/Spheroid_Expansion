@@ -10,8 +10,7 @@
 	<version>1.0.0</version>
         <packaging>jar</packaging>
 	<name>plugins/CIRB/Spheroid_Expansion.jar</name>
-	<description>Analyze spheroid protusion expansion
-        </description>
+	<description>Analyze spheroid expansion in 2D</description>
 
 	<developers>
             <developer>
@@ -26,7 +25,7 @@
                 <timezone>-1</timezone>
             </developer>
               <developer>
-                <id>heloise</id>
+                <id>hm</id>
                 <name>Heloïse Monnet</name>
                 <email>heloise.monnet@college-de-france.fr</email>
                 <url></url>
@@ -37,6 +36,7 @@
                 <timezone>-1</timezone>
             </developer>
 	</developers>
+        
         <properties>
             <imagej.app.directory>/opt/Fiji.app/</imagej.app.directory>
             <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -84,36 +84,35 @@
                 <artifactId>quickhull3d</artifactId>
                 <version>1.0.0</version>
             </dependency>
-	 <dependency>
-	  <groupId>sc.fiji</groupId>
-	  <artifactId>VIB-lib</artifactId>
-	  <version>2.2.1-SNAPSHOT</version>
-	  <type>jar</type>
-	 </dependency>
-	 <dependency>
-	  <groupId>loci</groupId>
-	  <artifactId>bio-formats</artifactId>
-	  <version>5.0-SNAPSHOT</version>
-	  <type>jar</type>
-	 </dependency>
-	 <dependency>
+            <dependency>
+                <groupId>sc.fiji</groupId>
+                <artifactId>VIB-lib</artifactId>
+                <version>2.2.1-SNAPSHOT</version>
+                <type>jar</type>
+            </dependency>
+            <dependency>
+                <groupId>loci</groupId>
+                <artifactId>bio-formats</artifactId>
+                <version>5.0-SNAPSHOT</version>
+                <type>jar</type>
+            </dependency>
+            <dependency>
                 <groupId>net.imglib2</groupId>
                 <artifactId>imglib2</artifactId>
                 <version>5.12.0</version>
                 <type>jar</type>
             </dependency>
-	 <dependency>
-	  <groupId>net.imglib2</groupId>
-	  <artifactId>imglib2-ij</artifactId>
-	  <version>2.0.1-SNAPSHOT</version>
-	  <type>jar</type>
-	 </dependency>
-	 <dependency>
-	  <groupId>org.morphonets</groupId>
-	  <artifactId>SNT</artifactId>
-	  <version>4.1.18</version>
-	  <type>jar</type>
-	 </dependency>
+            <dependency>
+                <groupId>net.imglib2</groupId>
+                <artifactId>imglib2-ij</artifactId>
+                <version>2.0.1-SNAPSHOT</version>
+                <type>jar</type>
+             </dependency>
+            <dependency>
+                <groupId>fr.inra.ijpb</groupId>
+                <artifactId>MorphoLibJ_</artifactId>
+                <version>1.6.0.1</version>
+             </dependency>
 	</dependencies>
         
         <repositories>
